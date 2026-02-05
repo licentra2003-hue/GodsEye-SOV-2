@@ -138,10 +138,8 @@ class MatrixCalculator:
         - **DO NOT** shift the focus to the "Winning Entity" (e.g., do not write patterns about AppsFlyer as if they were the client).
         - Analyze Competitors only as **Threats**.
 
-        **Required JSON Output:**
-        Return a JSON object with these exact keys:
-        1. "headlines": A list of short strings (e.g., ["Threat: Competitor X Dominance", "Gap: Missing Keyword Y"]).
-        2. "executive_summary": A 2-sentence high-level narrative explaining the product's visibility, the main competitor threat, and the most critical gap. Be direct and professional.
+        **Required Output:**
+        Return a JSON object with keys as "Headlines" (e.g., "Threat: Competitor X Dominance", "Gap: Missing Keyword Y").
         
         Data: {json.dumps(sample, default=str)}
         """
@@ -153,7 +151,7 @@ class MatrixCalculator:
             return json.loads(self._clean_json_text(response.text))
         except Exception as e:
             logger.error(f"Context Generation Failed: {e}")
-            return {"headlines": [], "executive_summary": "AI Analysis failed."}
+            return {"error": "Context generation failed"}
 
     async def _extract_generative_dna(self, rows: List[Dict], query_col: str) -> Dict:
         """Phase 3: The Generative DNA Extraction."""
