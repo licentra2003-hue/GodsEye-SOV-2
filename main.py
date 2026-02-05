@@ -9,6 +9,7 @@ import google.generativeai as genai
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # <--- IMPORTED FOR CORS FIX
 from pydantic import BaseModel, Field
 from supabase import Client, create_client
 
@@ -127,6 +128,7 @@ class MatrixCalculator:
         # Limit payload for context generation
         sample = insights[:50] if len(insights) > 50 else insights
 
+        # --- UPDATE: Added 'executive_summary' request to prompt ---
         prompt = f"""
         Analyze these {len(sample)} AI Search results for the Client Product: "{self.product_name}".
         
@@ -136,8 +138,10 @@ class MatrixCalculator:
         - **DO NOT** shift the focus to the "Winning Entity" (e.g., do not write patterns about AppsFlyer as if they were the client).
         - Analyze Competitors only as **Threats**.
 
-        **Required Output:**
-        Return a JSON object with keys as "Headlines" (e.g., "Threat: Competitor X Dominance", "Gap: Missing Keyword Y").
+        **Required JSON Output:**
+        Return a JSON object with these exact keys:
+        1. "headlines": A list of short strings (e.g., ["Threat: Competitor X Dominance", "Gap: Missing Keyword Y"]).
+        2. "executive_summary": A 2-sentence high-level narrative explaining the product's visibility, the main competitor threat, and the most critical gap. Be direct and professional.
         
         Data: {json.dumps(sample, default=str)}
         """
@@ -148,7 +152,8 @@ class MatrixCalculator:
             )
             return json.loads(self._clean_json_text(response.text))
         except Exception as e:
-            return {"error": "Context generation failed"}
+            logger.error(f"Context Generation Failed: {e}")
+            return {"headlines": [], "executive_summary": "AI Analysis failed."}
 
     async def _extract_generative_dna(self, rows: List[Dict], query_col: str) -> Dict:
         """Phase 3: The Generative DNA Extraction."""
@@ -326,10 +331,17 @@ class MatrixCalculator:
             
             context_patterns, generative_dna = await asyncio.gather(context_task, dna_task)
 
-            # Narrative Generation
-            narrative = f"Based on {total_items} queries. Visibility is {avg_sov}%. Trust Score is {citation_score}%."
-            if avg_sov < 30 and avg_rel > 70:
-                narrative += f" Critical Gap: {self.product_name} is highly relevant but virtually invisible."
+            # Narrative Generation (UPDATED)
+            # Try to get the AI summary, fallback to stats if missing
+            ai_summary = context_patterns.get("executive_summary")
+            
+            if ai_summary:
+                narrative = ai_summary
+            else:
+                # Fallback to hardcoded stats if AI fails
+                narrative = f"Based on {total_items} queries. Visibility is {avg_sov}%. Trust Score is {citation_score}%."
+                if avg_sov < 30 and avg_rel > 70:
+                    narrative += f" Critical Gap: {self.product_name} is highly relevant but virtually invisible."
 
             # --- STEP 8: UPSERT PRODUCT SNAPSHOT ---
             existing_sov_snap = supabase.table("sov_product_snapshots")\
@@ -379,6 +391,15 @@ class MatrixCalculator:
 
 # --- FASTAPI ---
 app = FastAPI()
+
+# --- ADD CORS MIDDLEWARE HERE ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 @app.post('/calculate-sov')
 async def handle_calculate_sov(payload: CalculationRequest):
